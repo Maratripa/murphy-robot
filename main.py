@@ -11,13 +11,15 @@ def start_process():
     suture_segmentator = SutureSegmentator()
     effector = Effector()
     #DESCOMENTAR PARA COMUNICARSE CON ESP32
-    #esp32_serial = ESP32Serial()
+    # TODO: Implementar comunicación ESP32 y Raspberry
+    esp32_serial = ESP32Serial()
 
     while True:
         ret, frame = capture.read()
         frame = effector.draw_effector_position(frame)
         cv2.imshow('Camera', frame)
         key = cv2.waitKey(1) & 0xFF
+        esp32_serial.send_data('hola')
         if key == ord('q'):
             break
         if key == ord('s'):
