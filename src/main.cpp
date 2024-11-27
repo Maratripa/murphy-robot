@@ -9,6 +9,7 @@
 
 #include "pid.h"
 
+// 35 Y 34 son solo input
 #define SDA_2 19
 #define SCL_2 18
 
@@ -24,22 +25,22 @@
 
 #define MICROSTEPS 32
 
-#define SSTEP1 48
-#define SDIR1 49
-#define EDIR1 30
-#define REDUCTION1 80/17
+#define SSTEP1 32
+#define SDIR1 33
+#define REDUCTION1 3.0
 #define ENDSTOP1 2
 
-#define SSTEP2 50
-#define SDIR2 51
-#define EDIR2 31
-#define REDUCTION2 3.0
-#define ENDSTOP2 3
+#define SSTEP2 27
+#define SDIR2 14
+#define REDUCTION2 80/17
+#define ENDSTOP2 4
 
-#define SSTEP3 53
-#define SDIR3 52
+#define SSTEP3 25
+#define SDIR3 26
 #define REDUCTION3 1.0
 
+#define tx2 17
+#define rx2 16
 
 AccelStepper stepper1(AccelStepper::DRIVER, SSTEP1, SDIR1);
 AS5600 encoder1(&Wire);
@@ -62,6 +63,8 @@ Adafruit_VL6180X lox2 = Adafruit_VL6180X();
 
 char buf[128];
 int bufPos = 0;
+int recived = 0;
+int to_clean = 0;
 
 int32_t lastPosition;
 
@@ -69,28 +72,39 @@ void readSerialInput();
 void parseSerialInput();
 void homeMotors();
 void homingInterrupt1();
+void homingInterrupt2();
 void setupTOFSensors();
+uint8_t readSensor(Adafruit_VL6180X &vl);
+void setupFullRutine(void);
+void setupMotorTest(void);
+void loopFullRutine(void);
+void loopMotorTest(void);
 
 void setup() {
-  stepper1.stop();
-  stepper2.stop();
-
+  Serial2.begin(115200, SERIAL_8N1,rx2,tx2); // raspberry comunication
   Serial.begin(9600);
+  stepper2.stop();
+  stepper2.setMaxSpeed(200 * MICROSTEPS);
+
+  /*stepper1.stop();
+  stepper2.stop();
+  
+
   Wire.begin();
   Wire1.begin(SDA_2, SCL_2);
 
   pinMode(LOX1_SHT, OUTPUT);
   pinMode(LOX2_SHT, OUTPUT);
-  Serial.println("Initializing sensors...");
+  Serial2.println("Initializing sensors...");
   // setupTOFSensors();
 
-  encoder1.begin(EDIR1);
+  encoder1.begin(30);
   encoder1.setDirection(AS5600_CLOCK_WISE);
 
-  encoder2.begin(EDIR2);
+  encoder2.begin(31);
   encoder2.setDirection(AS5600_CLOCK_WISE);
 
-  Serial.println(encoder1.getAddress());
+  Serial2.println(encoder1.getAddress());
 
   pinMode(ENDSTOP1, INPUT_PULLUP);
   attachInterrupt(digitalPinToInterrupt(ENDSTOP1), homingInterrupt1, RISING);
@@ -100,15 +114,17 @@ void setup() {
 
   int b = encoder1.isConnected();
   int c = encoder2.isConnected();
-  Serial.print("Connected: ");
-  Serial.print(b);
-  Serial.print(" | ");
-  Serial.println(c);
+  Serial2.print("Connected: ");
+  Serial2.print(b);
+  Serial2.print(" | ");
+  Serial2.println(c);
 
   stepper1.setMaxSpeed(200 * MICROSTEPS);
   stepper2.setMaxSpeed(200 * MICROSTEPS);
   stepperz.setMaxSpeed(200 * MICROSTEPS);
-
+  stepper1.setSpeed(-3200);
+  stepper1.runSpeed();
+  delay(500);
   delay(2000);
 
   homeMotors();
@@ -124,13 +140,22 @@ void setup() {
 
   //lastPosition = encoder.resetCumulativePosition(0);
 
-  delay(5000);
+  delay(5000);*/
 }
 
-void loop() {
+void loop() { 
   readSerialInput();
+  if (atoi(buf) == 1){
+    stepper1.setSpeed(1600);
+    
+  } else if (atoi(buf) == 2){
+    stepper1.setSpeed(-1600);
+  } else {
+    stepper1.setSpeed(0);
+  }
+  stepper1.runSpeed();
 
-  static uint32_t lastTime = 0; 
+  /*static uint32_t lastTime = 0; 
 
   int32_t pos1 = encoder1.getCumulativePosition();
   double pos_deg1 = pos1 * AS5600_RAW_TO_DEGREES;
@@ -166,11 +191,11 @@ void loop() {
     
   // if (millis() - lastTime >= 100 && signal1 != 0) {
   //   lastTime = millis();
-  //   Serial.print(pos_deg1);
-  //   Serial.print("\t");
-  //   Serial.print(encoder1.rawAngle() * AS5600_RAW_TO_DEGREES);
-  //   Serial.print("\n");
-  // }
+  //   Serial2.print(pos_deg1);
+  //   Serial2.print("\t");
+  //   Serial2.print(encoder1.rawAngle() * AS5600_RAW_TO_DEGREES);
+  //   Serial2.print("\n");
+  // }*/
 }
 
 void homingInterrupt1() {
@@ -203,8 +228,8 @@ void parseSerialInput() {
   pidz.setPoint(targetz);
 }
 
-void homeMotor() {
-  Serial.println("Starting coarse homing 1...");
+void homeMotors() {
+  Serial2.println("Starting coarse homing 1...");
   homingComplete1 = false;
   stepper1.setSpeed(HOME_DIRECTION * HOME_SPEED * MICROSTEPS / 2);
 
@@ -213,9 +238,9 @@ void homeMotor() {
   }
 
   stepper1.stop();
-  Serial.println("Coarse homing 1 complete");
+  Serial2.println("Coarse homing 1 complete");
   
-  Serial.println("Retracting...");
+  Serial2.println("Retracting...");
   stepper1.move(-HOME_DIRECTION*30*MICROSTEPS);
   stepper1.setAcceleration(200);
   while (stepper1.distanceToGo() != 0) {
@@ -223,7 +248,7 @@ void homeMotor() {
   }
 
   homingComplete1 = false;
-  Serial.println("Starting fine homing 1...");
+  Serial2.println("Starting fine homing 1...");
   stepper1.setSpeed(HOME_DIRECTION * HOME_SLOW * MICROSTEPS / 2);
 
   while (!homingComplete1) {
@@ -231,14 +256,14 @@ void homeMotor() {
   }
 
   stepper1.stop();
-  Serial.println("Fine homing 1 complete");
+  Serial2.println("Fine homing 1 complete");
 
   stepper1.setCurrentPosition(0);
   encoder1.resetCumulativePosition(0);
 
   detachInterrupt(digitalPinToInterrupt(ENDSTOP1));
 
-  Serial.println("Starting coarse homing 2...");
+  Serial2.println("Starting coarse homing 2...");
   homingComplete2 = false;
   stepper2.setSpeed(HOME_DIRECTION * HOME_SPEED * MICROSTEPS / 2);
 
@@ -247,9 +272,9 @@ void homeMotor() {
   }
 
   stepper2.stop();
-  Serial.println("Coarse homing 2 complete");
+  Serial2.println("Coarse homing 2 complete");
 
-  Serial.println("Retracting...");
+  Serial2.println("Retracting...");
   stepper2.move(-HOME_DIRECTION*30*MICROSTEPS);
   stepper2.setAcceleration(200);
   while (stepper2.distanceToGo() != 0) {
@@ -257,7 +282,7 @@ void homeMotor() {
   }
 
   homingComplete2 = false;
-  Serial.println("Starting fine homing 2...");
+  Serial2.println("Starting fine homing 2...");
   stepper2.setSpeed(HOME_DIRECTION* HOME_SLOW * MICROSTEPS / 2);
 
   while (!homingComplete2) {
@@ -265,7 +290,7 @@ void homeMotor() {
   }
 
   stepper2.stop();
-  Serial.println("Fine homing 2 complete");
+  Serial2.println("Fine homing 2 complete");
 
   stepper2.setCurrentPosition(0);
   encoder2.resetCumulativePosition(0);
@@ -274,14 +299,22 @@ void homeMotor() {
 }
 
 void readSerialInput() {
-  while (Serial.available()) {
-    buf[bufPos] = Serial.read();
-
-    if (buf[bufPos] == '\n') {
+  
+  while (Serial2.available()>0) {
+    buf[bufPos] = Serial2.read();
+    if (buf[bufPos] == ';') {
+      if (to_clean == 0){
+        memset(buf,0,sizeof(buf));
+        to_clean = 1;
+      };
+      for (int i = 0 ; i <= bufPos; i++){ 
+        Serial2.write(buf[i]);
+        };
       buf[bufPos] = '\0';
       bufPos = 0;
       parseSerialInput();
-    } else {
+    } 
+    else {
       bufPos++;
     }
   }
@@ -301,7 +334,7 @@ void setupTOFSensors() {
   delay(10);
 
   if (!lox1.begin()) {
-    Serial.println("Failed to boot first VL6180X");
+    Serial2.println("Failed to boot first VL6180X");
     while (1);
   }
 
@@ -312,7 +345,7 @@ void setupTOFSensors() {
   delay(10);
 
   if (!lox2.begin()) {
-    Serial.println("Failed to boot second VL6180X");
+    Serial2.println("Failed to boot second VL6180X");
   }
 
   lox2.setAddress(LOX2_ADDRESS);
