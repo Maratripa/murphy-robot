@@ -100,7 +100,7 @@ class Ojos():
         info = {"pix_to_mm": self.pixel_to_mm(height), 
                 "MAX_X": self.MAX_X, "MAX_Y": self.MAX_Y}
         self.initial_stitches = define_stitching_points(image, info)
-        return 
+        return True
 
     def translate_stiching_points(self, image, target: int):
         
@@ -122,12 +122,10 @@ class Ojos():
 
 class Comunicacion():
 
-    def __init__(self, Tx: int, Rx: int, usb_port: str, timeout : float):
+    def __init__(self, serial_port: str, timeout : float):
 
-        self.port = usb_port #Puerto USB de la camara
+        self.port = serial_port #Puerto USB de la camara
         self.baudrate = 115200 #Baudrate esp32
-        self.Tx = Tx #Puerto Tx de la Raspberry
-        self.Rx = Rx #Puerto Rx de la Raspberry
         self.timeout = timeout #Tiempo de espera para la comunicacion
         self.ser = serial.Serial(self.port, self.baudrate, timeout = self.timeout) #Instancia del puerto serial 
 
@@ -138,15 +136,30 @@ class Comunicacion():
         return self.ser.write(message)
     
     def read_data_gpio(self):
+        recieved = ""
+        finished = False
+        while self.ser.in_waiting and not finished:
+            caracter = self.ser.read()
+            recieved += caracter.decode()
+            if recieved[-1] == ";":
+                finished = True
+                recieved = recieved[:-1]
+        if recieved[0] == "z":
+            info = recieved.split(",")
+            sensor = info[0]
+            data = float(info[1])
+            return sensor, data
+        elif recieved[0] == "g":
+            return True
+        elif recieved[1] == "b":
+            return False
 
-        message = self.ser.readline().decode("utf-8")
-        #Hay que definir un sistema de mensajes para la comunicacion para los sensores de distancia y el finished
-        return(message)
-
+            
     def read_usb(self):
 
-        #Metodo para leer la camara, tengo que ver como está en el repo
-        pass
+        image = cv2.VideoCapture(0)
+        #Procesar imagen?
+        return image
 
     def send_motor_data(self, data):
 
@@ -210,8 +223,11 @@ class Robot():
             self.brazo.q1 = state[0]
             self.brazo.q2 = state[1]
             self.z = state[2]
-            self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, self.z])
-            return True
+            moved = self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, self.z])
+            if moved:
+                return True
+            else:
+                return False
         else:
             print(self.is_valid_state(state)[1])
             return False
@@ -265,7 +281,9 @@ class Robot():
         while distance > self.precision:
 
             new_pose = self.pose() + self.Kp_3D*move_vector
-            self.move(new_pose)
+            moved = self.move(new_pose)
+            while not moved:
+                self.move(new_pose)
 
             imagen = self.comunicacion.read_usb()
             pixel_deseado = self.ojos.find_object(target, imagen)
@@ -289,7 +307,9 @@ class Robot():
         while distance > self.precision:
 
             new_pose = self.pose() + self.Kp_3D*move_vector
-            self.move(new_pose)
+            moved = self.move(new_pose)
+            while not moved:
+                self.move(new_pose)
 
             altura_actual = self.comunicacion.send_request("z2", 1000)
 

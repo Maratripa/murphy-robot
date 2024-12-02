@@ -195,7 +195,6 @@ def find_wound(image):
     point_center = np.array([cx, cy])
     return point_center, largest_contour
 
-
 def find_pencil(image, info: dict):
     #Calcula la posicion del extremo efector en la imagen en pixeles
 
@@ -231,6 +230,26 @@ def find_pencil(image, info: dict):
 
     return np.array([max_x, max_y])
 
+def find_perpendicular_edge(info: dict):
+
+    wound_countour_mm = info["wound_countour_mm"]
+    actual_point = info["actual_point"]
+    length_axis = info["length_axis"]
+    tolerance = info["tolerance"]
+
+    projection_wound = np.dot(wound_countour_mm, length_axis)
+    projection_actual = np.dot(actual_point, length_axis)
+
+    matching_points = projection_wound[np.abs(projection_wound[:, 0] - projection_actual[0]) <= tolerance]
+    sup_matching_points = matching_points[matching_points[:, 1] - projection_actual[1] > 0]
+    inf_matching_points = matching_points[matching_points[:, 1] - projection_actual[1] < 0]
+
+    mean_sup_width = np.mean(sup_matching_points - projection_actual[1])
+    mean_inf_width = np.mean(inf_matching_points - projection_actual[1])
+
+    return mean_sup_width, mean_inf_width
+
+
 def define_stitching_points(image, info: dict):
     pix_to_mm = info["pix_to_mm"]
     
@@ -238,15 +257,39 @@ def define_stitching_points(image, info: dict):
 
     wound_countour_mm = wound_contour_pixel - wound_center_pixel #Centro el contorno en el origen
     wound_countour_mm = wound_countour_mm * pix_to_mm #Convierto de pixeles a milimetros
-    
+
     distance_matrix = squareform(pdist(wound_countour_mm))
-    _ , wound_length_mm = solve_nearest_neighbor({"distance_matrix": distance_matrix})
+    i, j = np.unravel_index(np.argmax(distance_matrix), distance_matrix.shape)
 
-    
+    point1 = wound_countour_mm[i]
+    point2 = wound_countour_mm[j]
+    length_axis = point2 - point1
+    wound_length_axis_distance = np.linalg.norm(length_axis)
+    num_stitches_pairs = wound_length_axis_distance // 5
+    stitches_center = np.zeros(num_stitches_pairs)
 
+    for k in range(1, num_stitches_pairs - 1):
+        stitches_center[k] = point1 + (k/num_stitches_pairs) * length_axis
 
-    
+    stitches = np.zeros(num_stitches_pairs)
+    for m in range(len(stitches_center)):
+        
+        perp_vec = np.array([-length_axis[1], length_axis[0]])
+        perp_vec = perp_vec/np.linalg.norm(perp_vec) #Vector perpendicular al eje normalizado
+        actual_point = stitches_center[m]
 
+        mean_sup_width, mean_inf_width = find_perpendicular_edge({"actual_point": actual_point,
+         "wound_contour_mm": wound_countour_mm, "tolerance": 0.2})
+        
+        sup_point = actual_point + perp_vec * (mean_sup_width + 5)
+        inf_point = actual_point + perp_vec * (mean_inf_width - 5)
+        stitches[m] = np.array([sup_point, inf_point])
+
+    sup_stitches = stitches[:,0]
+    stitching_order, _ = order_stitches({"stitches": sup_stitches})
+
+    ordered_stitches = stitches[stitching_order]
+    return ordered_stitches
 
 def translate_wound_geometry(image, info: dict):
 

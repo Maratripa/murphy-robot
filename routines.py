@@ -18,9 +18,7 @@ PARAMETROS = {
 "Imagen_height": 480,
 "precision_ojos": 5,
 "FOV": 60,
-"Tx_raspberry": 1,
-"Rx_raspberry": 2,
-"USB_port": "/dev/ttyUSB0",
+"puerto_serial": "/dev/ttyS0",
 "time_out": 1,
 "precision_robot": 5,
 "altura_lapiz": 10,
@@ -34,14 +32,14 @@ PARAMETROS = {
 def start(robot: Robot):
 
     home = robot.comunicacion.send_home()
-    while home != True:
+    while not home:
         home = robot.comunicacion.send_home()
     robot.brazo.q1 = 0
     robot.brazo.q2 = 0
     robot.z = robot.comunicacion.send_request("z1", 1000)
     
     found = robot.center_wound()
-    while found != True:
+    while not found:
         found = robot.center_wound()
 
     return True
@@ -78,7 +76,7 @@ def stitching(robot: Robot):
 
             print("Terminado")
             stop = robot.comunicacion.send_stop()
-            if not stop:
+            while not stop:
                 robot.comunicacion.send_stop()
             print("Robot detenido")
 
@@ -101,7 +99,7 @@ if __name__ == "__main__":
 
     brazo = Brazo(PARAMETROS["L1"], PARAMETROS["L2"], PARAMETROS["precision_brazo"], PARAMETROS["diferencia_lapiz"], PARAMETROS["distancia_camara"], PARAMETROS["min_q1"], PARAMETROS["max_q1"], PARAMETROS["min_q2"], PARAMETROS["max_q2"])
     ojos = Ojos(PARAMETROS["Imagen_width"], PARAMETROS["Imagen_height"], PARAMETROS["precision_ojos"], PARAMETROS["FOV"])
-    comunicacion = Comunicacion(PARAMETROS["Tx_raspberry"], PARAMETROS["Rx_raspberry"], PARAMETROS["USB_port"], PARAMETROS["time_out"])
+    comunicacion = Comunicacion(PARAMETROS["puerto_serial"], PARAMETROS["time_out"])
     murphy = Robot(brazo, ojos, comunicacion, PARAMETROS["precision_robot"], PARAMETROS["altura_lapiz"], PARAMETROS["screw_thread"], PARAMETROS["Kp_2D"], PARAMETROS["Kp_3D"], PARAMETROS["min_z"], PARAMETROS["max_z"])
 
     time.sleep(3) #Espera 3 segundos despues de prender para asegurarse que todo prenda bien
