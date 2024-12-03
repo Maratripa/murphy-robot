@@ -162,9 +162,9 @@ class Comunicacion():
             sensor = info[0]
             data = float(info[1])
             return sensor, data
-        elif recieved[0] == "g":
+        elif recieved[0] == "G":
             return True
-        elif recieved[1] == "b":
+        elif recieved[1] == "B":
             return False
 
             
