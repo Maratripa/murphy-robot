@@ -7,6 +7,8 @@ from Algorithms import (pose_calc, inverse_kinematics,
 import serial
 import time
 
+WAIT = 0.5
+
 
 class Brazo():
 
@@ -119,6 +121,17 @@ class Ojos():
             return None
         else:
             return new_pixel
+        
+    def estimate_stitch_pose(self, stitches: np.array, height: float, actual_pose: np.array):
+
+        pix_to_mm = self.pixel_to_mm(height)
+        stitches_pos = np.zeros(len(stitches))
+        for i in range(len(stitches)):
+            pix_diff = stitches[i] - self.center
+            mm_diff = pix_diff * pix_to_mm
+            stitches_pos[i] = actual_pose + np.array([mm_diff[0], mm_diff[1], -height])
+
+        return stitches_pos
 
 class Comunicacion():
 
@@ -270,7 +283,7 @@ class Robot():
         pixel_pencil = flip_y(self.ojos.find_pencil_pixel(imagen), self.ojos.MAX_Y)
         pixel_deseado = self.ojos.find_object(target, imagen)
         pixel_deseado = flip_y(pixel_deseado, self.ojos.MAX_Y)
-        altura_actual = self.comunicacion.send_request("z2", 1000)
+        altura_actual = self.comunicacion.send_request("z2", 4)
 
         move_vector_2D = pixel_deseado - pixel_pencil
         pix_to_mm_ratio = self.ojos.pixel_to_mm(altura_actual)
@@ -287,7 +300,7 @@ class Robot():
 
             imagen = self.comunicacion.read_usb()
             pixel_deseado = self.ojos.find_object(target, imagen)
-            altura_actual = self.comunicacion.send_request("z2", 1000)
+            altura_actual = self.comunicacion.send_request("z2", 4)
 
             move_vector_2D = pixel_deseado - pixel_pencil
             pix_to_mm_ratio = self.ojos.pixel_to_mm(altura_actual)
@@ -298,43 +311,37 @@ class Robot():
         return True
     
     def move_pencil_to_pos(self, pos_deseada):
-
-        altura_actual = self.comunicacion.send_request("z2", 1000)
-
-        move_vector = np.array([pos_deseada[0] - self.pose()[0], pos_deseada[1] - self.pose()[1], altura_actual - pos_deseada[2]])
-        distance = np.linalg.norm(move_vector)
         
-        while distance > self.precision:
-
-            new_pose = self.pose() + self.Kp_3D*move_vector
-            moved = self.move(new_pose)
-            while not moved:
-                self.move(new_pose)
-
-            altura_actual = self.comunicacion.send_request("z2", 1000)
-
-            move_vector = np.array([pos_deseada[0] - self.pose()[0], pos_deseada[1] - self.pose()[1], altura_actual - pos_deseada[2]])
-            distance = np.linalg.norm(move_vector)
+        moved = self.move(pos_deseada)
+        while not moved:
+            self.move(pos_deseada)
 
         return True
     
-    def stitch(self):
+    def stitch_pix(self):
 
         n_stitches = len(self.ojos.initial_stitches)
 
         for i in range(n_stitches):
             touched = self.move_pencil_to_object(i)
             if touched:
-                time.sleep(0.5)
+                time.sleep(WAIT)
                 moved = self.move_pencil_to_pos(self.pose() + np.array([0, 0, 50]))
                 if moved:
-                    time.sleep(0.5)
+                    time.sleep(WAIT)
                 else:
                     print("Error al alejar el lapiz")
             else:
                 print("Error al tocar el punto de sutura")
 
         self.finished = True
+
+    def stitch_pos(self):
+
+        pix_stitches = self.ojos.initial_stitches
+        pos_stitches = self.ojos.estimate_stitch_pose(pix_stitches, self.comunicacion.send_request("z2", 4), self.pose())
+        self.move_to_pos_list(pos_stitches)
+
 
     def move_to_pos_list(self, pos_list):
 
@@ -343,6 +350,15 @@ class Robot():
             if not moved:
                 print("Error al mover a la posición deseada")
                 return False
+            else: 
+                time.sleep(WAIT)
+                #Alejar el lapiz hacia arriba para que pueda moverse
+                moved = self.move_pencil_to_pos(self.pose() + np.array([0, 0, 50])) 
+                if moved:
+                    time.sleep(WAIT)
+                else:
+                    print("Error al alejar el lapiz")
+                    return False
         return True
 
     

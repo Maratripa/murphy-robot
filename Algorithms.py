@@ -252,7 +252,7 @@ def find_perpendicular_edge(info: dict):
 
 def define_stitching_points(image, info: dict):
     pix_to_mm = info["pix_to_mm"]
-    
+    coordinates = info["coordinates"]
     wound_center_pixel, wound_contour_pixel = find_wound(image)
 
     wound_countour_mm = wound_contour_pixel - wound_center_pixel #Centro el contorno en el origen
@@ -289,7 +289,11 @@ def define_stitching_points(image, info: dict):
     stitching_order, _ = order_stitches({"stitches": sup_stitches})
 
     ordered_stitches = stitches[stitching_order]
-    return ordered_stitches
+
+    stitches_pix = ordered_stitches / pix_to_mm
+    stitches_pix = stitches_pix + wound_center_pixel
+    
+    return stitches_pix
 
 def translate_wound_geometry(image, info: dict):
 

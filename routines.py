@@ -36,7 +36,7 @@ def start(robot: Robot):
         home = robot.comunicacion.send_home()
     robot.brazo.q1 = 0
     robot.brazo.q2 = 0
-    robot.z = robot.comunicacion.send_request("z1", 1000)
+    robot.z = robot.comunicacion.send_request("z1", 4)
     
     found = robot.center_wound()
     while not found:
@@ -53,7 +53,7 @@ def find_wound_initial(robot: Robot):
         wound = robot.ojos.find_wound_geometry(imagen)
     robot.ojos.save_wound_geometry(wound)
 
-    height = robot.comunicacion.send_request("z2", 1000)
+    height = robot.comunicacion.send_request("z2", 4)
 
     found_stitches = robot.ojos.define_stiching_points(imagen, height)
     while not found_stitches:
@@ -61,7 +61,7 @@ def find_wound_initial(robot: Robot):
 
     return True
 
-def stitching(robot: Robot):
+def stitching_pixel(robot: Robot):
     started = start(robot)
     if not started:
         print("Error al iniciar el robot")
@@ -72,7 +72,7 @@ def stitching(robot: Robot):
         else:
             print("Robot listo para coser")
             while not robot.finised:
-                robot.stitch()
+                robot.stitch_pix()
 
             print("Terminado")
             stop = robot.comunicacion.send_stop()
@@ -82,18 +82,30 @@ def stitching(robot: Robot):
 
     return True
 
-def move_list(robot: Robot, list_pos: list):
-
+def stitching_pos(robot: Robot):
     started = start(robot)
     if not started:
         print("Error al iniciar el robot")
     else:
-        finished = robot.move_to_pos_list(list_pos)
-        if not finished:
-            print("Error al mover el robot a la cola de posiciones")
-            return False
+        found_wound = find_wound_initial(robot)
+        if not found_wound:
+            print("Error al encontrar la herida")
         else:
-            return True
+            print("Robot listo para coser")
+            while not robot.finised:
+                robot.stitch_pos()
+
+            print("Terminado")
+            #Sube 100 mm el lapiz para que no se quede en la herida
+            robot.move_pencil_to_pos(robot.pose() + np.array([0, 0, 100]))
+            #Detiene el robot
+            stop = robot.comunicacion.send_stop()
+            while not stop:
+                robot.comunicacion.send_stop()
+            print("Robot detenido")
+
+    return True
+
 
 if __name__ == "__main__":
 
@@ -102,9 +114,9 @@ if __name__ == "__main__":
     comunicacion = Comunicacion(PARAMETROS["puerto_serial"], PARAMETROS["time_out"])
     murphy = Robot(brazo, ojos, comunicacion, PARAMETROS["precision_robot"], PARAMETROS["altura_lapiz"], PARAMETROS["screw_thread"], PARAMETROS["Kp_2D"], PARAMETROS["Kp_3D"], PARAMETROS["min_z"], PARAMETROS["max_z"])
 
-    time.sleep(3) #Espera 3 segundos despues de prender para asegurarse que todo prenda bien
+    time.sleep(5) #Espera 5 segundos despues de prender para asegurarse que todo prenda bien
     initial_time = time.time()
-    stitching(murphy)
+    stitching_pixel(murphy)
     final_time = time.time()
 
     print("Tiempo total: ", final_time - initial_time)
