@@ -9,7 +9,7 @@ from scipy.spatial.distance import pdist, squareform
 K_3D = 0.9
 PENCIL_TOLERANCE = 0.016
 WOUND_TOLERANCE = 0.016
-SHOW = False
+SHOW = True
 
 def degree_to_radian(grado):
     return (np.pi/180) * grado
@@ -74,8 +74,8 @@ def inverse_kinematics_2D(info: dict):
     count = 0
     pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"]}
     while dist > precision and count < max_steps:
-
-        J = Jacobian_inv(New_q1, New_q2)
+        pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"]}
+        J = Jacobian_inv(pos_info)
         correction = np.dot(J, Error)
         New_q1 += correction[0]
         New_q2 += correction[1]
@@ -236,42 +236,48 @@ def find_perpendicular_edge(info: dict):
     actual_point = info["actual_point"]
     length_axis = info["length_axis"]
     tolerance = info["tolerance"]
+    perp_vec = np.array((-length_axis[1], length_axis[0]))
 
-    projection_wound = np.dot(wound_countour_mm, length_axis)
+    projection_wound = wound_countour_mm@length_axis
     projection_actual = np.dot(actual_point, length_axis)
 
-    matching_points = projection_wound[np.abs(projection_wound[:, 0] - projection_actual[0]) <= tolerance]
-    sup_matching_points = matching_points[matching_points[:, 1] - projection_actual[1] > 0]
-    inf_matching_points = matching_points[matching_points[:, 1] - projection_actual[1] < 0]
+    matching_points_index = np.where(np.abs(projection_wound - projection_actual) <= tolerance)
+    matching_wound_points = wound_countour_mm[matching_points_index]
 
-    mean_sup_width = np.mean(sup_matching_points - projection_actual[1])
-    mean_inf_width = np.mean(inf_matching_points - projection_actual[1])
+    projection_wound_perp = matching_wound_points@perp_vec
+    sup_match_index = np.where(projection_wound_perp > 0)
+    inf_match_index = np.where(projection_wound_perp < 0)
 
-    return mean_sup_width, mean_inf_width
+    sup_matching_points = matching_wound_points[sup_match_index]
+    inf_matching_points = matching_wound_points[inf_match_index]
+
+    sup_dist = np.mean(sup_matching_points@perp_vec)
+    inf_dist = np.mean(inf_matching_points@perp_vec)
+
+    return sup_dist, inf_dist
 
 
 def define_stitching_points(image, info: dict):
     pix_to_mm = info["pix_to_mm"]
-    coordinates = info["coordinates"]
     wound_center_pixel, wound_contour_pixel = find_wound(image)
 
     wound_countour_mm = wound_contour_pixel - wound_center_pixel #Centro el contorno en el origen
     wound_countour_mm = wound_countour_mm * pix_to_mm #Convierto de pixeles a milimetros
-
+    wound_countour_mm = wound_countour_mm.reshape(wound_countour_mm.shape[0], 2)
     distance_matrix = squareform(pdist(wound_countour_mm))
     i, j = np.unravel_index(np.argmax(distance_matrix), distance_matrix.shape)
 
-    point1 = wound_countour_mm[i]
-    point2 = wound_countour_mm[j]
+    point1 = np.array((wound_countour_mm[i][0], wound_countour_mm[i][1]))
+    point2 = np.array((wound_countour_mm[j][0], wound_countour_mm[j][1]))
     length_axis = point2 - point1
     wound_length_axis_distance = np.linalg.norm(length_axis)
-    num_stitches_pairs = wound_length_axis_distance // 5
-    stitches_center = np.zeros(num_stitches_pairs)
+    num_stitches_pairs = int(wound_length_axis_distance // 5)
+    stitches_center = np.zeros((num_stitches_pairs, 2))
 
     for k in range(1, num_stitches_pairs - 1):
         stitches_center[k] = point1 + (k/num_stitches_pairs) * length_axis
 
-    stitches = np.zeros(num_stitches_pairs)
+    stitches = np.zeros((num_stitches_pairs,2,2))
     for m in range(len(stitches_center)):
         
         perp_vec = np.array([-length_axis[1], length_axis[0]])
@@ -279,7 +285,7 @@ def define_stitching_points(image, info: dict):
         actual_point = stitches_center[m]
 
         mean_sup_width, mean_inf_width = find_perpendicular_edge({"actual_point": actual_point,
-         "wound_contour_mm": wound_countour_mm, "tolerance": 0.2})
+         "wound_countour_mm": wound_countour_mm, "tolerance": 0.2, "length_axis": length_axis})
         
         sup_point = actual_point + perp_vec * (mean_sup_width + 5)
         inf_point = actual_point + perp_vec * (mean_inf_width - 5)
@@ -291,7 +297,17 @@ def define_stitching_points(image, info: dict):
     ordered_stitches = stitches[stitching_order]
 
     stitches_pix = ordered_stitches / pix_to_mm
-    stitches_pix = stitches_pix + wound_center_pixel
+    print(stitches_pix)
+    stitches_pix += wound_center_pixel
+
+    stitches_pix = stitches_pix.reshape(stitches_pix.shape[0]*2, 1, 2)
+
+    if SHOW:
+        for stitch in stitches_pix:
+            cv2.drawMarker(image, (stitch[0],stitch[1]),(0,0,255), markerType = cv2.MARKER_STAR, markersize = 3, thickness = 1, line_type = cv2.LINE_AA)
+        
+        cv2.imshow("stitch", image)
+        cv2.waitKey(10000)
     
     return stitches_pix
 

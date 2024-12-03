@@ -6,6 +6,8 @@ from Algorithms import (pose_calc, inverse_kinematics,
                             translate_wound_geometry, define_stitching_points)
 import serial
 import time
+import threading
+
 
 WAIT = 0.5
 
@@ -140,39 +142,54 @@ class Comunicacion():
         self.port = serial_port #Puerto USB de la camara
         self.baudrate = 115200 #Baudrate esp32
         self.timeout = timeout #Tiempo de espera para la comunicacion
-        self.ser = serial.Serial(self.port, self.baudrate, timeout = self.timeout) #Instancia del puerto serial 
+        self.ser = serial.Serial(self.port, self.baudrate) #Instancia del puerto serial
+        self.info = None
+
 
     def send_data_gpio(self, data):
 
-        message = data + "\n"
-        message = message.encode("utf-8")
+        message = data + ";"
+        message = message.encode()
         return self.ser.write(message)
     
     def read_data_gpio(self):
-        recieved = ""
-        finished = False
-        while self.ser.in_waiting and not finished:
-            caracter = self.ser.read()
-            recieved += caracter.decode()
-            if recieved[-1] == ";":
-                finished = True
-                recieved = recieved[:-1]
-        if recieved[0] == "z":
-            info = recieved.split(",")
-            sensor = info[0]
-            data = float(info[1])
-            return sensor, data
-        elif recieved[0] == "G":
-            return True
-        elif recieved[1] == "B":
-            return False
+        
+        return self.info
 
+
+    def _receive_data(self):
+        recieved = ""
+        while True:
+            while self.ser.in_waiting:
+                caracter = self.ser.read()
+                recieved += caracter.decode()
+                if recieved[-1] == ";":
+                    recieved = recieved[:-1]
+                    if recieved[0] == "z":
+                        info = recieved.split(",")
+                        sensor = info[0]
+                        data = float(info[1])
+                        self.info = data
+                    elif recieved[0] == "G":
+                        self.info = True
+                    elif recieved[0] == "B":
+                        self.info = False
+                    recieved = ""
+                    caracter = "0"
+
+
+    def init_read(self):
+        Myth = threading.Thread(target=self._receive_data)
+        Myth.daemon = True
+        Myth.start()
             
     def read_usb(self):
 
-        image = cv2.VideoCapture(0)
+        cap = cv2.VideoCapture(0)
+        ret, frame = cap.read()
+        cv2.imshow("image", frame)
         #Procesar imagen?
-        return image
+        return frame
 
     def send_motor_data(self, data):
 
@@ -192,6 +209,7 @@ class Comunicacion():
     def send_home(self):
 
         message = "h"
+        print("send home")
         self.send_data_gpio(message)
         return self.read_data_gpio()
 

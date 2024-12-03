@@ -27,20 +27,19 @@ PARAMETROS = {
 "Kp_3D": 0.2,
 "min_z": 10,
 "max_z": 200,
+"tree_num": 5,
+"search_depth": 10,
+"min_matches": 10
 }
 
 def start(robot: Robot):
 
     home = robot.comunicacion.send_home()
-    while not home:
-        home = robot.comunicacion.send_home()
     robot.brazo.q1 = 0
     robot.brazo.q2 = 0
     robot.z = robot.comunicacion.send_request("z1", 4)
     
     found = robot.center_wound()
-    while not found:
-        found = robot.center_wound()
 
     return True
 
@@ -53,7 +52,8 @@ def find_wound_initial(robot: Robot):
         wound = robot.ojos.find_wound_geometry(imagen)
     robot.ojos.save_wound_geometry(wound)
 
-    height = robot.comunicacion.send_request("z2", 4)
+    #height = robot.comunicacion.send_request("z2", 4)
+    height = 150
 
     found_stitches = robot.ojos.define_stiching_points(imagen, height)
     while not found_stitches:
@@ -110,13 +110,18 @@ def stitching_pos(robot: Robot):
 if __name__ == "__main__":
 
     brazo = Brazo(PARAMETROS["L1"], PARAMETROS["L2"], PARAMETROS["precision_brazo"], PARAMETROS["diferencia_lapiz"], PARAMETROS["distancia_camara"], PARAMETROS["min_q1"], PARAMETROS["max_q1"], PARAMETROS["min_q2"], PARAMETROS["max_q2"])
-    ojos = Ojos(PARAMETROS["Imagen_width"], PARAMETROS["Imagen_height"], PARAMETROS["precision_ojos"], PARAMETROS["FOV"])
+    ojos = Ojos(PARAMETROS["Imagen_width"], PARAMETROS["Imagen_height"], PARAMETROS["precision_ojos"], PARAMETROS["FOV"], PARAMETROS["tree_num"], PARAMETROS["search_depth"], PARAMETROS["min_matches"])
     comunicacion = Comunicacion(PARAMETROS["puerto_serial"], PARAMETROS["time_out"])
     murphy = Robot(brazo, ojos, comunicacion, PARAMETROS["precision_robot"], PARAMETROS["altura_lapiz"], PARAMETROS["screw_thread"], PARAMETROS["Kp_2D"], PARAMETROS["Kp_3D"], PARAMETROS["min_z"], PARAMETROS["max_z"])
 
-    time.sleep(5) #Espera 5 segundos despues de prender para asegurarse que todo prenda bien
-    initial_time = time.time()
-    stitching_pixel(murphy)
-    final_time = time.time()
+    time.sleep(1) #Espera 1 segundo despues de prender para asegurarse que todo prenda bien
+    # initial_time = time.time()
+    # stitching_pixel(murphy)
+    # final_time = time.time()
 
-    print("Tiempo total: ", final_time - initial_time)
+    #print("Tiempo total: ", final_time - initial_time)
+
+    done = start(murphy)
+
+    if done:
+        print("done")
