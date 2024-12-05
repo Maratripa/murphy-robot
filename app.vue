@@ -50,8 +50,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Bot, Play, AreaChart, Repeat, Crosshair } from 'lucide-vue-next'
+
 
 const result = ref(null)
 
@@ -72,12 +73,13 @@ const makeRequest = async (url) => {
 }
 
 const sendTestPosition = async () => {
-  const response = await makeRequest('/api/testPosition', {
+  console.log('Enviando request a api')
+  const response = await $fetch('/api/testPosition', {
     method: 'POST',
     body: JSON.stringify({
-      motor1: parseInt(motor1Position.value),
-      motor2: parseInt(motor2Position.value),
-      motor3: parseInt(motor3Position.value)
+      q1: parseInt(motor1Position.value),
+      q2: parseInt(motor2Position.value),
+      z: parseInt(motor3Position.value)
     })
   })
   handleTestPosition()
@@ -92,6 +94,8 @@ const buttons = [
     action: async () => {
       console.log('Empezar Rutina')
       result.value = await makeRequest('/api/startRoutine')
+      //send(JSON.stringify({ 'command': 1 }))
+      console.log('Comando enviado')
     }
   },
   { 
@@ -116,5 +120,9 @@ const buttons = [
     },
   }
 ]
+
+//onMounted(() => {
+//  socket = new WebSocket('ws://localhost:6969');
+//})
 
 </script>
