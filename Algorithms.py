@@ -10,6 +10,7 @@ K_3D = 0.9
 PENCIL_TOLERANCE = 0.016
 WOUND_TOLERANCE = 0.016
 SHOW = True
+SHOW_TIME = 10000
 
 def degree_to_radian(grado):
     return (np.pi/180) * grado
@@ -62,6 +63,7 @@ def inverse_kinematics_2D(info: dict):
     actual_q2 = info["q2"]
     precision = info["precision"]
     max_steps = info["max_steps"]
+    pencil_diff = info["pencil_diff"]
 
     #Calcula la cinematica inversa del brazo robotico
     #pose_deseada: Posicion deseada del extremo del brazo
@@ -74,7 +76,7 @@ def inverse_kinematics_2D(info: dict):
     count = 0
     pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"]}
     while dist > precision and count < max_steps:
-        pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"]}
+        pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"], "pencil_diff": pencil_diff}
         J = Jacobian_inv(pos_info)
         correction = np.dot(J, Error)
         New_q1 += correction[0]
@@ -101,6 +103,8 @@ def inverse_kinematics_3D(info: dict):
     actual_z = info["z"]
     precision = info["precision"]
     max_steps = info["max_steps"]
+    info["height"] = actual_z
+    pencil_diff = info["pencil_diff"]
     
     actual_pose = pose_calc(3, info)
     Error = pose_deseada - actual_pose
@@ -108,14 +112,15 @@ def inverse_kinematics_3D(info: dict):
     New_z = actual_z
     
     count = 0
-    pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"], "z": New_z}
     while dist > precision and count < max_steps:
 
+        pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"], "z": New_z, "pencil_diff": pencil_diff, "height": actual_z, "pencil_height": info["pencil_height"]}
         correction3D = Error[2] * K_3D
         New_z += correction3D
 
-        J = Jacobian_inv(New_q1, New_q2)
-        correction2D = np.dot(J, Error)
+        J = Jacobian_inv(pos_info)
+        error_2d = Error[:-1]
+        correction2D = np.dot(J, error_2d)
         New_q1 += correction2D[0]
         New_q2 += correction2D[1]
 
@@ -184,6 +189,10 @@ def find_wound(image):
 
     contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     largest_contour = max(contours, key=cv2.contourArea)
+    if SHOW:
+        cv2.drawContours(image, [largest_contour], 0, (0,255,0), 3)
+        cv2.imshow("imagen_contorno",image)
+        cv2.waitKey(SHOW_TIME)
 
     M = cv2.moments(largest_contour)
     if M["m00"] != 0:  # Para evitar división por cero
@@ -243,16 +252,33 @@ def find_perpendicular_edge(info: dict):
 
     matching_points_index = np.where(np.abs(projection_wound - projection_actual) <= tolerance)
     matching_wound_points = wound_countour_mm[matching_points_index]
-
+    
     projection_wound_perp = matching_wound_points@perp_vec
     sup_match_index = np.where(projection_wound_perp > 0)
     inf_match_index = np.where(projection_wound_perp < 0)
 
-    sup_matching_points = matching_wound_points[sup_match_index]
-    inf_matching_points = matching_wound_points[inf_match_index]
+    if len(sup_match_index[0]) > 0 and len(inf_match_index[0]) > 0:
+        sup_matching_points = matching_wound_points[sup_match_index]
+        inf_matching_points = matching_wound_points[inf_match_index]
 
-    sup_dist = np.mean(sup_matching_points@perp_vec)
-    inf_dist = np.mean(inf_matching_points@perp_vec)
+        sup_dist = np.mean(sup_matching_points@perp_vec)
+        inf_dist = np.mean(inf_matching_points@perp_vec)
+
+    elif len(sup_match_index[0]) > 0 and len(inf_match_index[0]) == 0:
+        sup_matching_points = matching_wound_points[sup_match_index]
+        sup_dist = np.mean(sup_matching_points@perp_vec)
+        inf_dist = - sup_dist
+    
+    elif len(sup_match_index[0]) == 0 and len(inf_match_index[0]) > 0:
+
+        inf_matching_points = matching_wound_points[inf_match_index]
+        inf_dist = np.mean(inf_matching_points@perp_vec)
+        sup_dist = - inf_dist
+
+    else:
+        info["tolerance"] = tolerance * 1.05
+        sup_dist, inf_dist = find_perpendicular_edge(info)
+    
 
     return sup_dist, inf_dist
 
@@ -271,13 +297,14 @@ def define_stitching_points(image, info: dict):
     point2 = np.array((wound_countour_mm[j][0], wound_countour_mm[j][1]))
     length_axis = point2 - point1
     wound_length_axis_distance = np.linalg.norm(length_axis)
+    print(wound_length_axis_distance)
     num_stitches_pairs = int(wound_length_axis_distance // 5)
-    stitches_center = np.zeros((num_stitches_pairs, 2))
+    stitches_center = np.zeros((num_stitches_pairs - 1, 2))
 
-    for k in range(1, num_stitches_pairs - 1):
-        stitches_center[k] = point1 + (k/num_stitches_pairs) * length_axis
-
-    stitches = np.zeros((num_stitches_pairs,2,2))
+    for k in range(1, num_stitches_pairs):
+        stitches_center[k - 1] = point1 + (k/num_stitches_pairs) * length_axis
+    
+    stitches = np.zeros((num_stitches_pairs - 1,2,2))
     for m in range(len(stitches_center)):
         
         perp_vec = np.array([-length_axis[1], length_axis[0]])
@@ -285,7 +312,7 @@ def define_stitching_points(image, info: dict):
         actual_point = stitches_center[m]
 
         mean_sup_width, mean_inf_width = find_perpendicular_edge({"actual_point": actual_point,
-         "wound_countour_mm": wound_countour_mm, "tolerance": 0.2, "length_axis": length_axis})
+         "wound_countour_mm": wound_countour_mm, "tolerance": 0.7, "length_axis": length_axis / wound_length_axis_distance})
         
         sup_point = actual_point + perp_vec * (mean_sup_width + 5)
         inf_point = actual_point + perp_vec * (mean_inf_width - 5)
@@ -293,21 +320,22 @@ def define_stitching_points(image, info: dict):
 
     sup_stitches = stitches[:,0]
     stitching_order, _ = order_stitches({"stitches": sup_stitches})
-
+    
     ordered_stitches = stitches[stitching_order]
-
+    
     stitches_pix = ordered_stitches / pix_to_mm
-    print(stitches_pix)
     stitches_pix += wound_center_pixel
-
-    stitches_pix = stitches_pix.reshape(stitches_pix.shape[0]*2, 1, 2)
+    print(stitches_pix.shape)
+    stitches_pix = stitches_pix.reshape(stitches_pix.shape[0]*2,1, 2)
+    stitches_pix = stitches_pix.squeeze()
 
     if SHOW:
         for stitch in stitches_pix:
-            cv2.drawMarker(image, (stitch[0],stitch[1]),(0,0,255), markerType = cv2.MARKER_STAR, markersize = 3, thickness = 1, line_type = cv2.LINE_AA)
-        
+            x = int(stitch[0])
+            y = int(stitch[1])
+            image = cv2.circle(image, [x,y], radius=3, color=(0, 0, 255), thickness=-1)
         cv2.imshow("stitch", image)
-        cv2.waitKey(10000)
+        cv2.waitKey(SHOW_TIME)
     
     return stitches_pix
 

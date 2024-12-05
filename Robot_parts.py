@@ -127,8 +127,9 @@ class Ojos():
     def estimate_stitch_pose(self, stitches: np.array, height: float, actual_pose: np.array):
 
         pix_to_mm = self.pixel_to_mm(height)
-        stitches_pos = np.zeros(len(stitches))
-        for i in range(len(stitches)):
+        stitches_pos = np.zeros((stitches.shape[0],3))
+        print(stitches.shape)
+        for i in range(stitches.shape[0]):
             pix_diff = stitches[i] - self.center
             mm_diff = pix_diff * pix_to_mm
             stitches_pos[i] = actual_pose + np.array([mm_diff[0], mm_diff[1], -height])
@@ -144,6 +145,8 @@ class Comunicacion():
         self.timeout = timeout #Tiempo de espera para la comunicacion
         self.ser = serial.Serial(self.port, self.baudrate) #Instancia del puerto serial
         self.info = None
+        self.info_lock = threading.Lock()
+        self.init_read()
 
 
     def send_data_gpio(self, data):
@@ -154,7 +157,16 @@ class Comunicacion():
     
     def read_data_gpio(self):
         
-        return self.info
+        while self.info is None:
+            time.sleep(0.01)
+        
+        
+        return_info = self.info
+
+        with self.info_lock:
+            self.info = None
+
+        return return_info
 
 
     def _receive_data(self):
@@ -165,15 +177,16 @@ class Comunicacion():
                 recieved += caracter.decode()
                 if recieved[-1] == ";":
                     recieved = recieved[:-1]
-                    if recieved[0] == "z":
-                        info = recieved.split(",")
-                        sensor = info[0]
-                        data = float(info[1])
-                        self.info = data
-                    elif recieved[0] == "G":
-                        self.info = True
-                    elif recieved[0] == "B":
-                        self.info = False
+                    with self.info_lock:
+                        if recieved[0] == "z":
+                            info = recieved.split(",")
+                            sensor = info[0]
+                            data = float(info[1])
+                            self.info = data
+                        elif recieved[0] == "G":
+                            self.info = True
+                        elif recieved[0] == "B":
+                            self.info = False
                     recieved = ""
                     caracter = "0"
 
@@ -187,8 +200,6 @@ class Comunicacion():
 
         cap = cv2.VideoCapture(0)
         ret, frame = cap.read()
-        cv2.imshow("image", frame)
-        #Procesar imagen?
         return frame
 
     def send_motor_data(self, data):
@@ -196,7 +207,7 @@ class Comunicacion():
         q1 = data[0]
         q2 = data[1]
         z = data[2]
-        message = f"m;{q1};{q2};{z}"
+        message = f"m,{q2},{q1},{z}"
         self.send_data_gpio(message)
         return self.read_data_gpio()
 
@@ -209,14 +220,15 @@ class Comunicacion():
     def send_home(self):
 
         message = "h"
-        print("send home")
+        
         self.send_data_gpio(message)
         return self.read_data_gpio()
 
     def send_request(self, data, num):
 
-        message = f"r;{data};{num}"
+        message = f"r,{data},{num}"
         self.send_data_gpio(message)
+        
         return self.read_data_gpio()
 
 class Robot():
@@ -240,21 +252,30 @@ class Robot():
         self.finised = False
          
     def pose(self):
-        info = {"q1": self.brazo.q1, "q2": self.brazo.q2, "L1": self.brazo.L1, "L2": self.brazo.L2, "pencil_diff": self.brazo.pencil_diff, "camera_dist": self.brazo.camera_dist}
+        info = {"q1": self.brazo.q1, "q2": self.brazo.q2,
+         "L1": self.brazo.L1, "L2": self.brazo.L2,
+          "pencil_diff": self.brazo.pencil_diff,
+           "camera_dist": self.brazo.camera_dist,
+           "height": self.z,
+        "pencil_height": self.pencil_height}
         return pose_calc(3, info)
     
     def get_state(self, pose_deseada):
-        return inverse_kinematics(3, {"pose_deseada": pose_deseada, "L1": self.brazo.L1, "L2": self.brazo.L2, "precision": self.precision, "max_steps": self.max_steps, "q1": self.brazo.q1, "q2": self.brazo.q2, "pencil_diff": self.brazo.pencil_diff, "camera_dist": self.brazo.camera_dist, "pencil_height": self.pencil_height})
+        return inverse_kinematics(3, {"pose_deseada": pose_deseada, "L1": self.brazo.L1, "L2": self.brazo.L2, "precision": self.precision, "max_steps": self.max_steps, "q1": self.brazo.q1, "q2": self.brazo.q2, "pencil_diff": self.brazo.pencil_diff, "camera_dist": self.brazo.camera_dist, "pencil_height": self.pencil_height, "z": self.z})
 
     def move(self, pose_deseada):
 
         #Mueve el brazo a la posición deseada
         state = self.get_state(pose_deseada)
         if self.is_valid_state(state)[0]:
+            internal_height = self.comunicacion.send_request("z1", 4)
+            delta = state[2] - self.z
             self.brazo.q1 = state[0]
             self.brazo.q2 = state[1]
             self.z = state[2]
-            moved = self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, self.z])
+            z_send = internal_height + delta
+            
+            moved = self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, z_send])
             if moved:
                 return True
             else:
