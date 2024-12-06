@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../../murphy-raspi/murphy-robot"
+		},
+		{
+			"path": "."
+		}
+	],
+	"settings": {}
+}

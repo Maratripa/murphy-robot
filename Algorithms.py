@@ -9,8 +9,9 @@ from scipy.spatial.distance import pdist, squareform
 K_3D = 0.9
 PENCIL_TOLERANCE = 0.016
 WOUND_TOLERANCE = 0.016
-SHOW = True
-SHOW_TIME = 10000
+SHOW = False
+SHOW_TIME = -1
+SAVE = False
 
 def degree_to_radian(grado):
     return (np.pi/180) * grado
@@ -55,8 +56,24 @@ def inverse_kinematics(dimension: int, info: dict):
         return inverse_kinematics_3D(info)
     else:
         return None
-    
+
 def inverse_kinematics_2D(info: dict):
+
+    pose_deseada = np.array([info["pose_deseada"][0], info["pose_deseada"][1]])
+    actual_q1 = info["q1"]
+    actual_q2 = info["q2"]
+    precision = info["precision"]
+    max_steps = info["max_steps"]
+    pencil_diff = info["pencil_diff"]
+
+    a = info["L2"] - pencil_diff
+    b = np.linalg.norm(pose_deseada)
+    c = info["L1"]
+    new_q1 = radian_to_degree(np.arccos((b**2 + c**2 - a**2)/(2*b*c)) + np.arctan(pose_deseada[1]/pose_deseada[0]))
+    new_q2 = radian_to_degree(np.pi - np.arccos((a**2 + c**2 - b**2)/(2*a*c)))
+    return np.array([new_q1, new_q2]) 
+
+def inverse_kinematics_2D_old(info: dict):
 
     pose_deseada = np.array([info["pose_deseada"][0], info["pose_deseada"][1]])
     actual_q1 = info["q1"]
@@ -86,8 +103,11 @@ def inverse_kinematics_2D(info: dict):
         pos_info["q2"] = New_q2
         
         Error = pose_deseada - pose_calc(2, pos_info)
+        print(f"error: {Error}")
         dist = distance(pose_calc(2, pos_info), pose_deseada)
         count += 1
+        print(f"q1: {New_q1}")
+        print(f"q2: {New_q2}")
 
     if dist > precision:
         return np.array([None, None])
@@ -106,34 +126,9 @@ def inverse_kinematics_3D(info: dict):
     info["height"] = actual_z
     pencil_diff = info["pencil_diff"]
     
-    actual_pose = pose_calc(3, info)
-    Error = pose_deseada - actual_pose
-    dist = distance(actual_pose, pose_deseada)
-    New_z = actual_z
+    New_z = pose_deseada[2]
     
-    count = 0
-    while dist > precision and count < max_steps:
-
-        pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"], "z": New_z, "pencil_diff": pencil_diff, "height": actual_z, "pencil_height": info["pencil_height"]}
-        correction3D = Error[2] * K_3D
-        New_z += correction3D
-
-        J = Jacobian_inv(pos_info)
-        error_2d = Error[:-1]
-        correction2D = np.dot(J, error_2d)
-        New_q1 += correction2D[0]
-        New_q2 += correction2D[1]
-
-        pos_info["z"] = New_z
-        pos_info["q1"] = New_q1
-        pos_info["q2"] = New_q2
-
-        Error = pose_deseada - pose_calc(3, pos_info)
-        dist = distance(pose_calc(3, pos_info), pose_deseada)
-        count += 1
     
-    if dist > precision:
-        return np.array([None, None])
         
     return np.array([New_q1, New_q2, New_z])
 
@@ -155,8 +150,8 @@ def pose_calc_2D(info: dict):
     pencil_diff = info["pencil_diff"] #Diferencia entre la punta del lapiz y el extremo del brazo horizontalmente
 
     #Calcula una posicion en x e y del extremo efector segun un q1 y q2 dados
-    x = L1 * np.cos(q1) + (L2 - pencil_diff) * np.cos(q1 + q2)
-    y = L1 * np.sin(q1) + (L2 - pencil_diff) * np.sin(q1 + q2)
+    x = L1 * np.cos(q1 - 120) + (L2 - pencil_diff) * np.cos(q1 - 120 + q2 - 128)
+    y = L1 * np.sin(q1 - 120) + (L2 - pencil_diff) * np.sin(q1 - 120 + q2 - 128)
     return np.array([x, y])
 
 def pose_calc_3D(info: dict):
@@ -188,11 +183,16 @@ def find_wound(image):
     red_mask = cv2.morphologyEx(red_mask, cv2.MORPH_OPEN, kernel)
 
     contours, _ = cv2.findContours(red_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(contours) == 0:
+        return None, None
+
     largest_contour = max(contours, key=cv2.contourArea)
     if SHOW:
         cv2.drawContours(image, [largest_contour], 0, (0,255,0), 3)
         cv2.imshow("imagen_contorno",image)
         cv2.waitKey(SHOW_TIME)
+        if SAVE:
+            save_image(image, "wound_countour")
 
     M = cv2.moments(largest_contour)
     if M["m00"] != 0:  # Para evitar división por cero
@@ -325,17 +325,30 @@ def define_stitching_points(image, info: dict):
     
     stitches_pix = ordered_stitches / pix_to_mm
     stitches_pix += wound_center_pixel
-    print(stitches_pix.shape)
     stitches_pix = stitches_pix.reshape(stitches_pix.shape[0]*2,1, 2)
     stitches_pix = stitches_pix.squeeze()
 
+    point_1_pix = point1 / pix_to_mm
+    point_1_pix += wound_center_pixel
+
+    point_2_pix = point2 / pix_to_mm
+    point_2_pix += wound_center_pixel
+
+
     if SHOW:
+        p1 = [int(point_1_pix[0]),int(point_1_pix[1])]
+        p2 = [int(point_2_pix[0]),int(point_2_pix[1])]
+        image = cv2.circle(image, p1, radius=3, color=(0, 255, 255), thickness=-1)
+        image = cv2.circle(image, p2, radius=3, color=(0, 255, 255), thickness=-1)
+        
         for stitch in stitches_pix:
             x = int(stitch[0])
             y = int(stitch[1])
             image = cv2.circle(image, [x,y], radius=3, color=(0, 0, 255), thickness=-1)
         cv2.imshow("stitch", image)
         cv2.waitKey(SHOW_TIME)
+        if SAVE:
+            save_image(image, "stitches")
     
     return stitches_pix
 
@@ -405,3 +418,9 @@ def solve_nearest_neighbor(info: dict):
         current = next_point
 
     return path, total_distance
+
+def save_image(image, img_name):
+
+
+    cv2.imwrite(img_name, image)
+    print(f"Saved image as: {img_name}")

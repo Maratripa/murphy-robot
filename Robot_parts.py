@@ -72,6 +72,9 @@ class Ojos():
     def find_wound_center_pixel(self, imagen):
         #Calcula la posicion del objetivo en la imagen en pixeles
         self.wound_center, _ = find_wound(imagen)
+        if self.wound_center is None:
+            print("no wound found")
+            return None
         return self.wound_center
     
     def get_image_file(self, imagen, show = False):
@@ -263,26 +266,44 @@ class Robot():
     def get_state(self, pose_deseada):
         return inverse_kinematics(3, {"pose_deseada": pose_deseada, "L1": self.brazo.L1, "L2": self.brazo.L2, "precision": self.precision, "max_steps": self.max_steps, "q1": self.brazo.q1, "q2": self.brazo.q2, "pencil_diff": self.brazo.pencil_diff, "camera_dist": self.brazo.camera_dist, "pencil_height": self.pencil_height, "z": self.z})
 
-    def move(self, pose_deseada):
-
+    def move(self, pose_deseada, angulo_deseado = [None]):
         #Mueve el brazo a la posición deseada
-        state = self.get_state(pose_deseada)
-        if self.is_valid_state(state)[0]:
-            internal_height = self.comunicacion.send_request("z1", 4)
-            delta = state[2] - self.z
-            self.brazo.q1 = state[0]
-            self.brazo.q2 = state[1]
-            self.z = state[2]
-            z_send = internal_height + delta
+        if angulo_deseado[0] != None:
+            is_valid = self.is_valid_state(angulo_deseado)
+            if is_valid[0]:
+                internal_height = self.comunicacion.send_request("z1", 4)
+                delta = angulo_deseado[2] - self.z
+                self.brazo.q1 = angulo_deseado[0]
+                self.brazo.q2 = angulo_deseado[1]
+                self.z = angulo_deseado[2]
+                z_send = internal_height + delta
             
-            moved = self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, z_send])
-            if moved:
-                return True
+                moved = self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, z_send])
+                if moved:
+                    return True
+                else:
+                    return False
             else:
+                print(is_valid[1])
                 return False
         else:
-            print(self.is_valid_state(state)[1])
-            return False
+            state = self.get_state(pose_deseada)
+            if self.is_valid_state(state)[0]:
+                internal_height = self.comunicacion.send_request("z1", 4)
+                delta = state[2] - self.z
+                self.brazo.q1 = state[0]
+                self.brazo.q2 = state[1]
+                self.z = state[2]
+                z_send = internal_height + delta
+                
+                moved = self.comunicacion.send_motor_data([self.brazo.q1, self.brazo.q2, z_send])
+                if moved:
+                    return True
+                else:
+                    return False
+            else:
+                print(self.is_valid_state(state)[1])
+                return False
         
     def is_valid_state(self, state):
 
@@ -295,22 +316,29 @@ class Robot():
 
     def center_wound(self):
 
+        search_pose = np.array([120,129,self.max_z])
+        self.move([0,0,0],angulo_deseado = search_pose)
         #Centra la herida en la vista de la camara
         image = self.comunicacion.read_usb()
-        pixel_wound = flip_y(self.ojos.find_wound_center_pixel(image), self.ojos.MAX_Y)
+        wound_center = self.ojos.find_wound_center_pixel(image)
+        if wound_center is None:
+            return False
+        pixel_wound = flip_y(wound_center, self.ojos.MAX_Y)
         pixel_center = self.ojos.center
 
-        move_vector = pixel_wound - pixel_center
+        move_vector = pixel_center - pixel_wound
         distance = np.linalg.norm(move_vector)
         
         while distance > self.ojos.precision:
             
             new_pose = self.brazo.pose() + self.Kp_2D*move_vector
-            self.move(new_pose)
+            send_pose = np.array([new_pose[0],new_pose[1], self.z])
+            print(send_pose)
+            self.move(send_pose)
 
             image = self.comunicacion.read_usb()
             pixel_wound = flip_y(self.ojos.find_wound_center_pixel(image), self.ojos.MAX_Y)
-            move_vector = pixel_wound - pixel_center
+            move_vector = pixel_center - pixel_wound
             distance = np.linalg.norm(move_vector)
 
         return True
