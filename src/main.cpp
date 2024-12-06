@@ -16,9 +16,6 @@
 #define LOX1_ADDRESS 0x30
 #define LOX2_ADDRESS 0x31
 
-#define LOX1_SHT 7
-#define LOX2_SHT 6
-
 #define HOME_DIRECTION 1
 #define HOME_SPEED 50
 #define HOME_SLOW 25
@@ -89,6 +86,7 @@ void homingInterrupt2();
 void readEncoders();
 void setupTOFSensors();
 uint8_t readSensor(Adafruit_VL6180X &vl, uint8_t num);
+uint8_t readSensor2(Adafruit_VL6180X &vl, uint8_t num);
 uint8_t readSensorFast(Adafruit_VL6180X &vl, uint8_t num);
 
 void setupFullRutine(void);
@@ -278,6 +276,7 @@ void parseSerialInput() {
       ptr++;
       if (*ptr == ',') ptr++; 
       if (strncmp(ptr, "z1", 2) == 0) {
+        Serial.println("z1");
         ptr += 2;
         if (*ptr == ',') ptr++; 
         int num_samples = atoi(ptr); 
@@ -288,12 +287,13 @@ void parseSerialInput() {
         Serial2.write(response);
 
       } else if (strncmp(ptr, "z2", 2) == 0) {
+        Serial.print("z2");
         ptr += 2;
         if (*ptr == ',') ptr++; 
         int num_samples = atoi(ptr); 
         
         char response[32];
-        uint8_t z2 = readSensor(lox2,num_samples);
+        uint8_t z2 = readSensor2(lox2,num_samples);
         snprintf(response, sizeof(response), "z2,%d;", z2);
         Serial2.write(response);
       } else {
@@ -513,11 +513,51 @@ void setupTOFSensors() {
 
 uint8_t readSensor(Adafruit_VL6180X &vl,uint8_t num) {
 
+
   if (millis() - lastSensorTime < 1000) {
     return currentZ;
    }
 
   lastSensorTime = millis();
+
+
+  uint16_t suma = 0;
+
+  for (int i = 0; i < num; i++) {
+    suma += vl.readRange(); 
+      }
+
+  float promedio = (float)suma / num;
+
+  int entero = int(promedio);
+  int decimal = int((promedio - entero)* 10);
+
+  //   char response1[32];
+  // snprintf(response1, sizeof(response1), "entero,%d;", entero);
+
+  // char response[32];
+  // snprintf(response, sizeof(response), "decimal,%d;", decimal);
+
+  // Serial.print(response1);
+  // Serial.print(response);
+
+  if (decimal >= 3) {
+    entero++;
+  }
+
+  return entero;
+  
+  // uint8_t status = vl.readRangeStatus();
+
+  // if (status == VL6180X_ERROR_NONE) {
+  //   return range;
+  // } else {
+  //   return 255;
+  // }
+}
+
+uint8_t readSensor2(Adafruit_VL6180X &vl,uint8_t num) {
+
 
 
   uint16_t suma = 0;
