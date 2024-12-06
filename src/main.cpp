@@ -60,7 +60,7 @@ uint8_t currentZ = 0;
 double targetz = 0;
 int lastSensorTime = 0;
 int arrivedz = 0;
-PID pidz(3000.0, 1, 5);
+PID pidz(100.0, 5, 2);
 
 Adafruit_VL6180X lox1 = Adafruit_VL6180X();
 Adafruit_VL6180X lox2 = Adafruit_VL6180X();
@@ -106,7 +106,10 @@ void setup() {
 
   stepper1.setMaxSpeed(200 * MICROSTEPS * REDUCTION1);
   stepper2.setMaxSpeed(200 * MICROSTEPS * REDUCTION2);
-  stepperz.setMaxSpeed(1000 * MICROSTEPS);
+  stepperz.setMaxSpeed(4000 * MICROSTEPS);
+  stepper1.setAcceleration(1 * MICROSTEPS);  
+  stepper2.setAcceleration(1 * MICROSTEPS);
+  stepperz.setAcceleration(5 * MICROSTEPS);
 
   setupTOFSensors();
 
@@ -131,15 +134,6 @@ void setup() {
 
   currentZ = readSensor(lox1,10);
 
-  //homeMotors();
-  // encoder1.resetCumulativePosition(0);
-  // encoder2.resetCumulativePosition(0);
-  // stepper1.setCurrentPosition(0);
-  // stepper2.setCurrentPosition(0);
-
-
-
-
   pid1.setTolerance(1.8 / REDUCTION1);
   pid1.setPoint(0);
 
@@ -147,21 +141,12 @@ void setup() {
   pid2.setPoint(0);
 
   pidz.setTolerance(2);
-  pidz.setPoint(126);
-
-
-
-
+  pidz.setPoint(60);
 }
 
 void loop() { 
   readSerialInput();
-  //readEncoders();
- 
   
-
-
-
  int32_t pos1 = encoder1.getCumulativePosition();
   double pos_deg1 = pos1 * AS5600_RAW_TO_DEGREES / REDUCTION1;
   double signal1 = pid1.update(pos_deg1);
@@ -169,6 +154,7 @@ void loop() {
   if (signal1 != 0) {
      stepper1.setSpeed(-signal1 * MICROSTEPS * REDUCTION1);
      stepper1.runSpeed();
+
    } else {
      stepper1.setSpeed(0);
    }
@@ -184,8 +170,6 @@ void loop() {
      stepper2.setSpeed(0);
    }
 
-  
-
  
   if (signal1 == 0 && signal2 == 0) {
     if (currentZ - targetz < 8 && currentZ - targetz > 0 ) {
@@ -196,7 +180,7 @@ void loop() {
     double signalz = pidz.update(currentZ);
 
     if (signalz != 0 && arrivedz == 0) {
-       stepperz.setSpeed(10 * signalz * MICROSTEPS);
+       stepperz.setSpeed(signalz * MICROSTEPS);
        stepperz.runSpeed();
     }  else {
         stepperz.setSpeed(0);
@@ -251,8 +235,7 @@ void parseSerialInput() {
       if(targetz > 126) {
         targetz = 126;
       }
-      pidz.setPoint(targetz); // quitar offset de sensor de distancia
-      //3. Probar todo junto
+      pidz.setPoint(targetz);
 
       Serial.print("Moviendo motor 1 a ");
       Serial.print(target1);
@@ -263,8 +246,11 @@ void parseSerialInput() {
       break;
     }
     case 's': {
-      Serial.println("Stopping");
-      
+      Serial.println("Emergency Stopping1!");
+      stepper1.stop();
+      stepper2.stop();
+      stepperz.stop();
+      while (1);
       break;
     }
     case 'h': {
@@ -324,73 +310,6 @@ void readSerialInput() {
   }
 }
 
-void homeMotor1() {
-  Serial.println("Starting coarse homing 1...");
-  homingComplete1 = false;
-  stepper1.setSpeed(HOME_DIRECTION * HOME_SPEED * MICROSTEPS / 2);
-
-  while (!homingComplete1) {
-    stepper1.runSpeed();
-  }
-
-  stepper1.stop();
-  Serial.println("Coarse homing 1 complete");
-  
-  Serial.println("Retracting...");
-  stepper1.move(-HOME_DIRECTION*30*MICROSTEPS);
-  stepper1.setAcceleration(200);
-  while (stepper1.distanceToGo() != 0) {
-    stepper1.run();
-  }
-
-  homingComplete1 = false;
-  Serial.println("Starting fine homing 1...");
-  stepper1.setSpeed(HOME_DIRECTION * HOME_SLOW * MICROSTEPS / 2);
-
-  while (!homingComplete1) {
-    stepper1.runSpeed();
-  }
-
-  stepper1.stop();
-
-  stepper1.setCurrentPosition(0);
- // encoder1.resetCumulativePosition(0);
-
-  detachInterrupt(digitalPinToInterrupt(ENDSTOP1)); }
-
-  void homeMotor2() {
-  Serial.println("Starting coarse homing 2...");
-  homingComplete2 = false;
-  stepper2.setSpeed(-HOME_DIRECTION * HOME_SPEED * MICROSTEPS / 2);
-
-  while (!homingComplete2) {
-    stepper2.runSpeed();
-  }
-
-  stepper2.stop();
-  Serial.println("Coarse homing 2 complete");
-  
-  Serial.println("Retracting...");
-  stepper2.move(HOME_DIRECTION*30*MICROSTEPS);
-  stepper2.setAcceleration(200);
-  while (stepper2.distanceToGo() != 0) {
-    stepper2.run();
-  }
-
-  homingComplete2 = false;
-  Serial.println("Starting fine homing 2...");
-  stepper2.setSpeed(-HOME_DIRECTION * HOME_SLOW * MICROSTEPS / 2);
-
-  while (!homingComplete1) {
-    stepper2.runSpeed();
-  }
-
-  stepper2.stop();
-
-  stepper2.setCurrentPosition(0);
- // encoder1.resetCumulativePosition(0);
-
-  detachInterrupt(digitalPinToInterrupt(ENDSTOP2)); }
 
 
 void homeMotors() {
@@ -429,7 +348,7 @@ void homeMotors() {
   stepper1.setCurrentPosition(0);
   encoder1.resetCumulativePosition(0);
 
-  detachInterrupt(digitalPinToInterrupt(ENDSTOP1));
+  //detachInterrupt(digitalPinToInterrupt(ENDSTOP1));
 
   Serial.println("Starting coarse homing 2...");
   homingComplete2 = false;
@@ -466,7 +385,7 @@ void homeMotors() {
   stepper2.setCurrentPosition(0);
   encoder2.resetCumulativePosition(0);
 
-  detachInterrupt(digitalPinToInterrupt(ENDSTOP2));
+  //detachInterrupt(digitalPinToInterrupt(ENDSTOP2));
 
   Serial2.write("G;");
 
@@ -474,7 +393,7 @@ void homeMotors() {
 
 int lastTime = 0;
 void readEncoders() {
-    pos_deg1 = encoder1.getCumulativePosition() * AS5600_RAW_TO_DEGREES;
+  pos_deg1 = encoder1.getCumulativePosition() * AS5600_RAW_TO_DEGREES;
 
   pos_deg2 = encoder2.getCumulativePosition() * AS5600_RAW_TO_DEGREES;
 
@@ -513,14 +432,10 @@ void setupTOFSensors() {
 
 uint8_t readSensor(Adafruit_VL6180X &vl,uint8_t num) {
 
-
   if (millis() - lastSensorTime < 1000) {
     return currentZ;
    }
-
   lastSensorTime = millis();
-
-
   uint16_t suma = 0;
 
   for (int i = 0; i < num; i++) {
@@ -532,36 +447,16 @@ uint8_t readSensor(Adafruit_VL6180X &vl,uint8_t num) {
   int entero = int(promedio);
   int decimal = int((promedio - entero)* 10);
 
-  //   char response1[32];
-  // snprintf(response1, sizeof(response1), "entero,%d;", entero);
-
-  // char response[32];
-  // snprintf(response, sizeof(response), "decimal,%d;", decimal);
-
-  // Serial.print(response1);
-  // Serial.print(response);
-
-  if (decimal >= 3) {
+  if (decimal >= 5) {
     entero++;
   }
 
   return entero;
-  
-  // uint8_t status = vl.readRangeStatus();
-
-  // if (status == VL6180X_ERROR_NONE) {
-  //   return range;
-  // } else {
-  //   return 255;
-  // }
 }
 
 uint8_t readSensor2(Adafruit_VL6180X &vl,uint8_t num) {
 
-
-
   uint16_t suma = 0;
-
   for (int i = 0; i < num; i++) {
     suma += vl.readRange(); 
       }
@@ -571,28 +466,12 @@ uint8_t readSensor2(Adafruit_VL6180X &vl,uint8_t num) {
   int entero = int(promedio);
   int decimal = int((promedio - entero)* 10);
 
-  //   char response1[32];
-  // snprintf(response1, sizeof(response1), "entero,%d;", entero);
-
-  // char response[32];
-  // snprintf(response, sizeof(response), "decimal,%d;", decimal);
-
-  // Serial.print(response1);
-  // Serial.print(response);
-
-  if (decimal >= 3) {
+  if (decimal >= 5) {
     entero++;
   }
 
   return entero;
   
-  // uint8_t status = vl.readRangeStatus();
-
-  // if (status == VL6180X_ERROR_NONE) {
-  //   return range;
-  // } else {
-  //   return 255;
-  // }
 }
 
 uint8_t readSensorFast(Adafruit_VL6180X &vl,uint8_t num) {
@@ -603,12 +482,11 @@ uint8_t readSensorFast(Adafruit_VL6180X &vl,uint8_t num) {
 
   lastSensorTime = millis();
 
-
   uint16_t suma = 0;
 
   for (int i = 0; i < num; i++) {
     suma += vl.readRange(); 
-      }
+    }
 
   float promedio = (float)suma / num;
 
