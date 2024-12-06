@@ -23,10 +23,9 @@ PARAMETROS = {
 "puerto_serial": "/dev/ttyS0",
 "time_out": 1,
 "precision_robot": 5,
-"altura_lapiz": 107,
+"altura_lapiz": 110,
 "screw_thread": 2,
-"Kp_2D": 1,
-"Kp_3D": 0.2,
+"Kp_2D": 0.05,
 "min_z": 10,
 "max_z": 127,
 "tree_num": 5,
@@ -35,13 +34,17 @@ PARAMETROS = {
 }
 def precision_test(robot: Robot, pose, num = 5):
 
-    robot.move(np.array([0,0,100]))
+    robot.move(np.array([0,200,70]))
+    h = robot.comunicacion.send_request("z2", 5)
+    print(h)
     for i in range(num):
         robot.move(pose)
+        h = robot.comunicacion.send_request("z2", 5)
+        print(h)
         time.sleep(1)
-        random_pose_x = np.random.uniform(-20,20)
-        random_pose_y = np.random.uniform(180,220)
-        random_pose_z = np.random.uniform(0,70)
+        random_pose_x = np.random.uniform(-40,40)
+        random_pose_y = np.random.uniform(150,220)
+        random_pose_z = np.random.uniform(60,65)
         random_pose = np.array([random_pose_x, random_pose_y, random_pose_z])
         robot.move(random_pose)
         time.sleep(1)
@@ -52,7 +55,7 @@ def work_area(robot: Robot):
     point1 = np.array([-125,119,100])
     point2 = np.array([-125,239,100])
     point3 = np.array([125,239,100])
-    point4 = np.array([125,239,100])
+    point4 = np.array([125,119,100])
 
     points = [point1, point2, point3, point4]
     for point in points:
@@ -134,11 +137,36 @@ def stitching_pos(robot: Robot):
 
     return True
 
-def wound_testing(robot: Robot, image, height: float):
+def wound_testing(robot: Robot):
 
+    robot.move(None, np.array([120,128,120]))
+    image = robot.comunicacion.read_usb()
+    height = robot.comunicacion.send_request("z2", 10)
+    print("height")
+    print(height)
     found_stitches = robot.ojos.define_stiching_points(image, height)
     while not found_stitches:
         found_stitches = robot.ojos.define_stiching_points(image)
+    print("found stiches")
+    print(found_stitches)
+
+
+    stitches = robot.ojos.initial_stitches
+    stitches_pos = robot.ojos.estimate_stitch_pose(stitches, height, robot.pose())
+
+    print(f"murphy pose: {robot.pose()}")
+    print(f"stitches pose:\n{stitches_pos}")
+    zt = robot.z_touch()
+
+
+    for stitch in stitches_pos:
+
+        stitch[2] = zt
+        print(stitch)
+        robot.move(stitch)
+        print("llegue")
+        up = stitch + np.array([0,0,10])
+        robot.move(up)
 
 
 
@@ -149,7 +177,7 @@ if __name__ == "__main__":
     brazo = Brazo(PARAMETROS["L1"], PARAMETROS["L2"], PARAMETROS["precision_brazo"], PARAMETROS["diferencia_lapiz"], PARAMETROS["distancia_camara"], PARAMETROS["min_q1"], PARAMETROS["max_q1"], PARAMETROS["min_q2"], PARAMETROS["max_q2"])        
     ojos = Ojos(PARAMETROS["Imagen_width"], PARAMETROS["Imagen_height"], PARAMETROS["precision_ojos"], PARAMETROS["FOV"], PARAMETROS["tree_num"], PARAMETROS["search_depth"], PARAMETROS["min_matches"])
     comunicacion = Comunicacion(PARAMETROS["puerto_serial"], PARAMETROS["time_out"])
-    murphy = Robot(brazo, ojos, comunicacion, PARAMETROS["precision_robot"], PARAMETROS["altura_lapiz"], PARAMETROS["screw_thread"], PARAMETROS["Kp_2D"], PARAMETROS["Kp_3D"], PARAMETROS["min_z"], PARAMETROS["max_z"])
+    murphy = Robot(brazo, ojos, comunicacion, PARAMETROS["precision_robot"], PARAMETROS["altura_lapiz"], PARAMETROS["Kp_2D"], PARAMETROS["min_z"], PARAMETROS["max_z"])
 
     time.sleep(1) #Espera 1 segundo despues de prender para asegurarse que todo prenda bien
     
@@ -168,15 +196,11 @@ if __name__ == "__main__":
     # print(go_to)
     # murphy.move(go_to)
     
-    # image = murphy.comunicacion.read_usb()
-    # efector_height = murphy.comunicacion.send_request("z2", 10)
     
-    # wound_testing(murphy, image, efector_height)
+    #murphy.comunicacion.send_home()
+    wound_testing(murphy)
 
-    # stitches = murphy.ojos.initial_stitches
-    # stitches_pos = murphy.ojos.estimate_stitch_pose(stitches, efector_height, murphy.pose())
-    # print(f"murphy pose: {murphy.pose()}")
-    # print(f"stitches pose:\n{stitches_pos}")
+    
     
 
     """
@@ -188,5 +212,13 @@ if __name__ == "__main__":
     
     #murphy.center_wound()
 
-    work_area(murphy)
+    #murphy.comunicacion.send_home()
+    #work_area(murphy)
+
+    #pos_test = np.array([30,200,50])
+    #precision_test(murphy, pos_test )
+
+
+
+    
     

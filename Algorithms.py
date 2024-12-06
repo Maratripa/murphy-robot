@@ -9,8 +9,8 @@ from scipy.spatial.distance import pdist, squareform
 K_3D = 0.9
 PENCIL_TOLERANCE = 0.016
 WOUND_TOLERANCE = 0.016
-SHOW = False
-SHOW_TIME = -1
+SHOW = True
+SHOW_TIME = 3000
 SAVE = False
 
 def degree_to_radian(grado):
@@ -60,59 +60,47 @@ def inverse_kinematics(dimension: int, info: dict):
 def inverse_kinematics_2D(info: dict):
 
     pose_deseada = np.array([info["pose_deseada"][0], info["pose_deseada"][1]])
-    actual_q1 = info["q1"]
-    actual_q2 = info["q2"]
-    precision = info["precision"]
-    max_steps = info["max_steps"]
     pencil_diff = info["pencil_diff"]
 
-    a = info["L2"] - pencil_diff
-    b = np.linalg.norm(pose_deseada)
-    c = info["L1"]
-    new_q1 = radian_to_degree(np.arccos((b**2 + c**2 - a**2)/(2*b*c)) + np.arctan(pose_deseada[1]/pose_deseada[0]))
-    new_q2 = radian_to_degree(np.pi - np.arccos((a**2 + c**2 - b**2)/(2*a*c)))
-    return np.array([new_q1, new_q2]) 
+    x = pose_deseada[0]
+    y = pose_deseada[1]
+    L1 = info["L1"]
+    L2 = info["L2"] - pencil_diff
 
-def inverse_kinematics_2D_old(info: dict):
+    # Calcular el ángulo theta2
+    theta2 = np.arccos((x**2 + y**2 - L1**2 - L2**2) / (2 * L1 * L2))
+    
+    if x < 0 and y < 0:
+        theta2 = -theta2
+    
+    # Calcular el ángulo theta1
+    theta1 = np.arctan2(y, x) - np.arctan2(L2 * np.sin(theta2), L1 + L2 * np.cos(theta2))
+    
+    # Convertir ángulos de radianes a grados
+    theta2_deg = -theta2 * 180 / np.pi
+    theta1_deg = theta1 * 180 / np.pi
+    
+    if y == 0:
+        print(f"Punto no valido")
+        return None
+    # Ajustes de ángulos según el cuadrante
+    if x >= 0 and y >= 0:  # 1er cuadrante
+        theta1_deg = 90 - theta1_deg
+    elif x < 0 and y > 0:  # 2do cuadrante
+        theta1_deg = 90 - theta1_deg
+    elif x < 0 and y < 0:  # 3er cuadrante
+        theta1_deg = -270 - theta1_deg
+    elif x > 0 and y < 0:  # 4to cuadrante
+        theta1_deg = 90 - theta1_deg
+    elif x < 0 and y == 0:
+        print(f"Punto no valido")
+        return None
 
-    pose_deseada = np.array([info["pose_deseada"][0], info["pose_deseada"][1]])
-    actual_q1 = info["q1"]
-    actual_q2 = info["q2"]
-    precision = info["precision"]
-    max_steps = info["max_steps"]
-    pencil_diff = info["pencil_diff"]
+    # Redondear ángulos
+    theta1_deg = round(theta1_deg,3)
+    theta2_deg = round(theta2_deg,3)
 
-    #Calcula la cinematica inversa del brazo robotico
-    #pose_deseada: Posicion deseada del extremo del brazo
-    actual_pose = pose_calc(2, info)
-    Error = pose_deseada - actual_pose
-    dist = distance(actual_pose, pose_deseada)
-
-    New_q1 = actual_q1
-    New_q2 = actual_q2
-    count = 0
-    pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"]}
-    while dist > precision and count < max_steps:
-        pos_info = {"q1": New_q1, "q2": New_q2, "L1": info["L1"], "L2": info["L2"], "pencil_diff": pencil_diff}
-        J = Jacobian_inv(pos_info)
-        correction = np.dot(J, Error)
-        New_q1 += correction[0]
-        New_q2 += correction[1]
-
-        pos_info["q1"] = New_q1
-        pos_info["q2"] = New_q2
-        
-        Error = pose_deseada - pose_calc(2, pos_info)
-        print(f"error: {Error}")
-        dist = distance(pose_calc(2, pos_info), pose_deseada)
-        count += 1
-        print(f"q1: {New_q1}")
-        print(f"q2: {New_q2}")
-
-    if dist > precision:
-        return np.array([None, None])
-
-    return np.array([New_q1, New_q2])
+    return theta1_deg, theta2_deg
 
 def inverse_kinematics_3D(info: dict):
 
@@ -120,15 +108,7 @@ def inverse_kinematics_3D(info: dict):
     New_q1 = pos_2d[0]
     New_q2 = pos_2d[1]
     pose_deseada = info["pose_deseada"]
-    actual_z = info["z"]
-    precision = info["precision"]
-    max_steps = info["max_steps"]
-    info["height"] = actual_z
-    pencil_diff = info["pencil_diff"]
-    
-    New_z = pose_deseada[2]
-    
-    
+    New_z = pose_deseada[2]   
         
     return np.array([New_q1, New_q2, New_z])
 
@@ -141,29 +121,31 @@ def pose_calc(dimension: int, info: dict):
     else:
         return None
     
+
+    
 def pose_calc_2D(info: dict):
 
-    q1 = info["q1"]
-    q2 = info["q2"]
+    theta1 = info["q1"]
+    theta2 = info["q2"]
     L1 = info["L1"]
-    L2 = info["L2"]
-    pencil_diff = info["pencil_diff"] #Diferencia entre la punta del lapiz y el extremo del brazo horizontalmente
-
+    L2 = info["L2"]-info["pencil_diff"]
     #Calcula una posicion en x e y del extremo efector segun un q1 y q2 dados
-    x = L1 * np.cos(q1 - 120) + (L2 - pencil_diff) * np.cos(q1 - 120 + q2 - 128)
-    y = L1 * np.sin(q1 - 120) + (L2 - pencil_diff) * np.sin(q1 - 120 + q2 - 128)
-    return np.array([x, y])
+
+    # Conversión de grados a radianes
+    theta1_rad = np.radians(theta1-120)  # Grados a radianes
+    theta2_rad = np.radians(theta2-128)
+
+    # Cálculo de las coordenadas xP e yP
+    yP = round(L1 * np.cos(theta1_rad) + L2 * np.cos(theta1_rad + theta2_rad))
+    xP = round(L1 * np.sin(theta1_rad) + L2 * np.sin(theta1_rad + theta2_rad))
+
+    return round(xP, 2), round(yP, 2)
 
 def pose_calc_3D(info: dict):
 
-    height = info["height"]
-    pencil_height = info["pencil_height"] #Diferencia entre la punta del lapiz y el extremo del brazo verticalmente
-
     #Calcula una posicion del extremo efector segun q1, q2 y altura dados
-    pos_xy = pose_calc_2D(info)
-    x = pos_xy[0]
-    y = pos_xy[1]
-    z = height - pencil_height
+    x, y = pose_calc_2D(info)
+    z = info["z"]
     return np.array([x, y, z])
 
 def find_wound(image):
@@ -187,6 +169,8 @@ def find_wound(image):
         return None, None
 
     largest_contour = max(contours, key=cv2.contourArea)
+
+    
     if SHOW:
         cv2.drawContours(image, [largest_contour], 0, (0,255,0), 3)
         cv2.imshow("imagen_contorno",image)
@@ -202,6 +186,8 @@ def find_wound(image):
         cx, cy = 0, 0
 
     point_center = np.array([cx, cy])
+    print("wound center")
+    print(point_center)
     return point_center, largest_contour
 
 def find_pencil(image, info: dict):
@@ -298,8 +284,16 @@ def define_stitching_points(image, info: dict):
     length_axis = point2 - point1
     wound_length_axis_distance = np.linalg.norm(length_axis)
     print(wound_length_axis_distance)
-    num_stitches_pairs = int(wound_length_axis_distance // 5)
+    num_stitches_pairs = int(wound_length_axis_distance // 15)
     stitches_center = np.zeros((num_stitches_pairs - 1, 2))
+
+    point_1_pix = point1 / pix_to_mm
+    point_1_pix += wound_center_pixel
+
+    point_2_pix = point2 / pix_to_mm
+    point_2_pix += wound_center_pixel
+
+
 
     for k in range(1, num_stitches_pairs):
         stitches_center[k - 1] = point1 + (k/num_stitches_pairs) * length_axis
@@ -333,6 +327,8 @@ def define_stitching_points(image, info: dict):
 
     point_2_pix = point2 / pix_to_mm
     point_2_pix += wound_center_pixel
+
+    print(f"wound length pix {np.linalg.norm(point_2_pix - point_1_pix)}")
 
 
     if SHOW:
